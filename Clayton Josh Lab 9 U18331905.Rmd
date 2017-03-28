@@ -1,0 +1,58 @@
+---
+title: "(9) Multivariate Regression II  - Josh Clayton"
+output:
+  html_document: default
+  html_notebook: default
+---
+#Step 5: Multivariate Analyses
+
+Ameriflux Data Upload
+```{r}
+data=read.csv("AMF_USWCr_2002_L2_WG_V004.csv",skip = 18,na.strings = c(-9999,-6999))[-1,] #Willow Creek
+night = data$PAR < 1 & data$UST > 0.4 
+dn <- data[night,]
+my.variables=c("TS1","SWC1","SWC2","TA","DOY","WD")
+dn2 = na.omit(dn[,c("NEE",my.variables)])
+```
+
+1. Report the 'best' multivariate model at each level (e.g. the best models with 2, 3, and 4 variables) and describe the process you used to select each model and what statistics you used to justify these choices. Include the summary statistics from your initial univariate model, the final model, and the various models tried along the way.
+
+I used TS1 as my "base" variable because it was both signficant and explained the highest proportion of NEE of any variable tested (r2=0.4013309). Despite the fact that we previously eliminated TA as a model variable due to its high colinearity with TS1 (0.8811401), I started off by seeing how much TA would increase the r-squared value above my base model.
+```{r}
+fit1=lm(dn2$NEE ~ dn2$TS1)
+summary(fit1)[8]
+fit2=lm(dn2$NEE ~ dn2$TS1 + dn2$TA)
+summary(fit2)[8]
+```
+TA is significant and increased the proportion of explained NEE by 1%.
+```{r}
+summary(fit1)[8]
+fit3=lm(dn2$NEE ~ dn2$TS1 + dn2$WD)
+summary(fit3)[c(4,8)]
+```
+
+
+
+
+```{r}
+fit=lm(dn2$NEE ~)
+```
+
+
+
+
+#Step 6: Model Selection
+
+```{r}
+plot(predict(fit2),dn2$NEE,main="Actual vs. Observed NEE (TS1 + SWC1)",ylab="Predicted NEE (umol/m2/s)",xlab="Observed NEE (umol/m2/s)")
+abline(0,1,col=2,lwd=3)
+```
+```{r}
+plot(fit2)
+#
+
+#Three Variable Model
+fit3=lm(dn2$NEE ~ dn2$TS1 + dn2$SWC1 + dn2$SWC2)
+summary(fit3)
+```
+
