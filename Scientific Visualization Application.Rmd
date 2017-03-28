@@ -7,6 +7,11 @@ TODO:
 2. select different x or y variables from a pull-down menu
 3. zoom in/out by altering the limits but leaving the data unchanged, subsetting the data, or both
 
+```{r}
+Sys.setenv("plotly_username"="jaclytn")
+Sys.setenv("plotly_api_key"="8hHIJ4mxDoIgh2OiEJrK")
+```
+
 
 Add Drop Down Menu - Changing Chart Type
 ```{r}
