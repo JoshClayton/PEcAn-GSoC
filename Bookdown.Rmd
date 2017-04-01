@@ -1,0 +1,203 @@
+---
+title: 'Building Simple Groundwater Flow Model in R Markdown'
+author: "Josh Clayton"
+output:
+  bookdown::gitbook: default
+  bookdown::pdf_book: default
+site: bookdown::bookdown_site
+documentclass: book
+---
+#Objective
+
+The objective of this exercise is to introduce you to the modeling of groundwater flow, particularly the flow of near surface water. This guide will give you the basic understanding and tools you need to build a one-dimensional moisture profile using R Markdown. If you are new to R Markdown, it will be useful to familiarize yourself with the basics before proceeding with this exercise.
+
+#Background
+
+##Intuition
+profile diagram
+
+##Equations
+The following eq
+1. **Hydraulic conductivity** will be calculated as a function of soil moisture, $\theta_{i}$, for each depth, i.
+$$k_{i,k} = k_{sat} \frac{ \theta_{i,t}}{\theta_{sat}}^{2b+3} $$
+2. **Water potential** will be calculated as the sum of *gravitational potential* and the *matric potential*, illustrated below.
+
+- gravitational potential: $\psi_{g,i}=h_{i}$
+- matric potential: $\psi_{m,i,t}=\psi_{sat}\frac{\theta_{i,t}}{\theta_{sat}}^{-b}$
+- **water potential**: $$\psi_{i,t}=\psi_{m,i,t}+\psi_{g,i}$$ 
+
+3. **Flux Rate** will be calclauted from the difference in *water potential*.
+$$F_{i,t} = -k_{i,t}\frac{d\psi_{i,t}}{dz} $$
+$$Vol_{i,t}=min(sink.max,source.max,flux_{i,t}(dt)) $$
+4. **Soil moisture** in this discrete model will be calculated by updating the soil moisture for the next time step based on the current moisture fluxes both *in* and *out* of each previous layer.
+$$\theta_{i,t+1}=\theta_{i,t}+Vol_{i-1,t}-Vol_{i,t}$$
+
+#Data
+Download and save the **texture.csv** data file provided in the respository if you have not already. This file provides a list of the physical properties of soils of different textures. Ensure that both the .Rmd file that you are building your model in and the **texture.csv** data file are both saved within the save folder that you have set as your [working directory](http://rfunction.com/archives/1001).
+
+```{r}
+dat = read.csv("texture.csv",header=TRUE)
+```
+
+It may prove useful to survey the data. In this example we will simulate groundwater flow through **loamy sand**.
+
+- **slpots**: soil moisture potential at saturation (m)
+- **slmsts**: soil moisture at saturation ($\frac{m^3}{m^3}$)
+- **slcons0**: surface value of hydraulic conductivity at saturation ($\frac{m}{s}$)
+- **slbs**: B exponent ($\frac{n}{d}$) *which you saw earlier in the equation for hydraulic conductivity*
+- **soilcp**: dry soil capacity (-3.1MPa) ($\frac{m^3}{m^3}$)
+```{r}
+knitr::kable(dat[,c("name","slpots","slmsts","slcons0","slbs","soilcp")])
+```
+
+#Model
+
+##Initial Conditions
+This model will be simulated on a soil profile **2 meters deep**  with **8 layers** that are each **0.25 meters** thick. Other than defining a depth that is shallow (only 2 meters below the surface), these conditions were arbitrarily assigned. Feel free to assign your own, especially if it renders your model more informative.
+```{r}
+z=2 #depth (m)
+n=8 #number of soil layers
+dz=0.25 #layer thickness (m)
+```
+
+Additionally, this model will be simulated over a period of **36 hours** with individual, discrete time steps of **10 seconds**.
+```{r}
+p=36 #period
+dt=10 #seconds
+nt=p*3600/dt #time steps
+```
+
+Below we define soil as layers 2 through 9 because the top, or first, layer is aboveground (and thus not soil). Defining which layers  constitute soil will serve as a useful indexing tool later on. Refer back to the intuition section to review the full profile diagram if necessary.
+```{r}
+soil=2:9
+```
+
+
+##Setup
+```{r}
+theta=matrix(0,nrow=(n+1),ncol=nt+1) #moisture matrix
+theta[2:9,1]=.3 #initial moisture conditions
+k=matrix(0,nrow=n,ncol=nt) ##hydrualic conductivity (k) matrix
+ksat=dat[2,"slcons0"] #hydraulic conductivity at saturation
+thetasat=dat[2,"slmsts"] #saturation 
+b=dat[2,"slbs"] #B exponent value
+h=c(0,-.25,-.5,-.75,-1,-1.25,-1.5,-1.75,-2) #depth profile
+gpot=h #has length 9
+psisat=dat[2,"slpots"] #moisture at saturation
+psi=matrix(0,nrow=n+1,ncol=nt) #potential matrix
+flux=matrix(0,nrow=n,ncol=nt) ##flux
+dry=dat[2,"soilcp"] #dry soil moisture
+vol=matrix(0,nrow=n,ncol=nt) #volume flux
+```
+
+##The Model
+```{r}
+for(t in 1:nt){
+  for(i in 1:n){ #hydraulic conductivity
+    k[i,t]=ksat*(theta[i+1,t]/thetasat)^((2*b)+3)
+  }
+  psi[1,t]=theta[1,t] #water potential
+  for(i in 2:(n+1)){ 
+    psi[i,t]=h[i]+psisat*(theta[i,t]/thetasat)^(-b)
+  }  
+  for(i in 1:n){ #flux
+    flux[i,t]=-k[i,t]*((psi[i+1,t]-psi[i,t])/dz)
+  }
+  for(i in 1:n){ #volume flux
+    if(i==1){
+      source.max=theta[1,t]
+    }else{
+      source.max=theta[i,t]-dry
+    }
+    sink.max=thetasat-theta[i+1,t]
+    vol[i,t]=max(0,min(sink.max,source.max,flux[i,t]*dt))
+  }
+  theta[1,t+1]=theta[1,t]-vol[1,t]
+  for(i in 2:n){
+    theta[i,t+1]=theta[i,t]+vol[i-1,t]-vol[i,t]
+  }
+  theta[n+1,t+1]=theta[n+1,t]+vol[n,t]
+}
+```
+
+
+#Graphical Representation
+##Soil Moisture over Time
+```{r}
+plot(theta[2,],
+     ylim=c(.1,.5),
+     xlim=c(1,200000),
+     xlab="Time (sec)",
+     ylab="Soil Moisture (m^3/m^3)",
+     type='l',
+     col=2,
+     lwd=2,
+     main="Soil Moisture vs. Time",
+     log='x')
+for(i in 3:(n+1)){
+   lines(theta[i,],col=i,lwd=2)
+}
+abline(h=thetasat,lty=2)
+legend("topright",legend=paste(h[2:9],"m"),col=2:9,lwd=2)
+```
+
+##Steady State
+Below we calculate the time at which the model in this simulation reached [steady state](http://groups.molbiosci.northwestern.edu/holmgren/Glossary/Definitions/Def-S/steady_state.html).
+```{r}
+steadystate=rep(0,9)
+for(i in 1:9){
+  steadystate[i]=which(round(theta[i,],digits=3)==round(theta[i,nt],digits=3))[1]
+}
+max(steadystate)
+```
+Below is a graph of the soil moisture at each level at *steady state*.
+```{r}
+soil = 2:(n+1)
+plot(-h[soil],theta[soil,nt+1],
+     ylab="Soil Moisture (m^3/m^3)",
+     xlab="Depth (m)",
+     main="Soil Moisture vs. Depth at Steady State"
+     )
+```
+
+
+#Additional Applications
+##Surface Flood Simulation
+One reason an aboveground layer was defined was to allow for simulations of surface flood.
+```{r}
+theta[1,1]=.3
+for(t in 1:nt){
+  for(i in 1:n){
+    k[i,t]=ksat*(theta[i+1,t]/thetasat)^((2*b)+3)
+  }
+  psi[1,t]=theta[1,t]
+  for(i in 2:(n+1)){ 
+    psi[i,t]=h[i]+psisat*(theta[i,t]/thetasat)^(-b)
+  }  
+  for(i in 1:n){
+    flux[i,t]=-k[i,t]*((psi[i+1,t]-psi[i,t])/dz)
+  }
+  for(i in 1:n){
+    if(i==1){
+      source.max=theta[1,t]
+    }else{
+      source.max=theta[i,t]-dry
+    }
+    sink.max=thetasat-theta[i+1,t]
+    vol[i,t]=max(0,min(sink.max,source.max,flux[i,t]*dt))
+  }
+  theta[1,t+1]=theta[1,t]-vol[1,t]
+  for(i in 2:n){
+    theta[i,t+1]=theta[i,t]+vol[i-1,t]-vol[i,t]
+  }
+  theta[n+1,t+1]=theta[n+1,t]+vol[n,t]
+}
+```
+```{r}
+plot(theta[2,],ylim=c(.15,thetasat),xlim=c(0,16500),xlab="Time (sec)",ylab="Soil Moisture (m^3/m^3)",type='l',col=2,main="Soil Moisture vs. Time",lwd=3)
+for(i in 3:(n+1)){
+   lines(theta[i,],col=i,lwd=3)
+}
+legend("topright",legend=paste(h[2:9],"m"),col=2:9,lwd=2)
+```
+
